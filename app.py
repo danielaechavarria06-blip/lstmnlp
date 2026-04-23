@@ -1,32 +1,27 @@
 """
 Generador de Texto con LSTM
-Aplicacion Streamlit - Curso Agentes de IA e Interfaces Multimodales
 """
 
 import streamlit as st
 import numpy as np
 import json
-import time
 import os
+from PIL import Image
 
 st.set_page_config(
     page_title="Generador LSTM",
     page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # 🎨 ESTILOS CELESTE + BURBUJAS
 st.markdown("""
 <style>
-
-/* 🌊 FONDO */
 .stApp {
     background: linear-gradient(180deg, #dbeafe, #e0f2fe);
-    color: #0f172a;
 }
 
-/* 🧠 TITULO */
+/* TITULO */
 .main-title {
     text-align: center;
     font-size: 2.5rem;
@@ -34,26 +29,19 @@ st.markdown("""
     color: #0284c7;
 }
 
-/* SUBTITULO */
+/* SUB */
 .subtitle {
     text-align: center;
     color: #0369a1;
-    font-size: 1rem;
 }
 
-/* TEXTO GENERADO */
+/* TEXTO */
 .generated-text {
     background: linear-gradient(135deg, #f0f9ff, #bae6fd);
     border-radius: 15px;
     padding: 1.5rem;
-    font-family: Georgia, serif;
-    line-height: 1.8;
+    font-family: Georgia;
     border-left: 6px solid #0ea5e9;
-}
-
-/* SIDEBAR */
-section[data-testid="stSidebar"] {
-    background: #e0f2fe;
 }
 
 /* BOTONES */
@@ -63,15 +51,9 @@ section[data-testid="stSidebar"] {
     border-radius: 12px;
     border: none;
     font-weight: bold;
-    transition: 0.3s;
 }
 
-.stButton>button:hover {
-    transform: scale(1.05);
-    box-shadow: 0px 0px 15px rgba(14,165,233,0.5);
-}
-
-/* 🫧 BURBUJAS */
+/* BURBUJAS */
 .bubble {
     position: fixed;
     border-radius: 50%;
@@ -80,16 +62,15 @@ section[data-testid="stSidebar"] {
     animation: float 12s infinite;
 }
 
-.b1 { width: 80px; height: 80px; left: 10%; bottom: -100px; animation-delay: 0s;}
-.b2 { width: 60px; height: 60px; left: 30%; bottom: -100px; animation-delay: 3s;}
-.b3 { width: 100px; height: 100px; left: 60%; bottom: -100px; animation-delay: 6s;}
-.b4 { width: 50px; height: 50px; left: 80%; bottom: -100px; animation-delay: 9s;}
+.b1 { width: 80px; height: 80px; left: 10%; bottom: -100px;}
+.b2 { width: 60px; height: 60px; left: 30%; bottom: -100px;}
+.b3 { width: 100px; height: 100px; left: 60%; bottom: -100px;}
+.b4 { width: 50px; height: 50px; left: 80%; bottom: -100px;}
 
 @keyframes float {
     0% { transform: translateY(0); }
     100% { transform: translateY(-120vh); }
 }
-
 </style>
 
 <div class="bubble b1"></div>
@@ -98,13 +79,24 @@ section[data-testid="stSidebar"] {
 <div class="bubble b4"></div>
 """, unsafe_allow_html=True)
 
+# 🐋 HEADER CON IMAGEN
+colA, colB = st.columns([1,3])
 
-# ── Funciones ────────────────────────────────────────────────────────────────
+with colA:
+    bot = Image.open("bot.jpg")  # 👈 tu imagen aquí
+    st.image(bot, width=120)
+
+with colB:
+    st.markdown('<h1 class="main-title">🧠 Generador LSTM</h1>', unsafe_allow_html=True)
+    st.markdown('<p class="subtitle">Tu bot creativo del mar 💙</p>', unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── FUNCIONES ─────────────────────────
 
 @st.cache_resource
 def load_model_and_metadata(model_path, metadata_path):
     try:
-        import tensorflow as tf
         from tensorflow import keras
         model = keras.models.load_model(model_path)
         with open(metadata_path, "r", encoding="utf-8") as f:
@@ -114,12 +106,6 @@ def load_model_and_metadata(model_path, metadata_path):
     except Exception as e:
         return None, None, str(e)
 
-
-def is_embedding_model(model):
-    first = model.layers[0]
-    return hasattr(first, "input_dim") or first.__class__.__name__ == "Embedding"
-
-
 def sample_temperature(preds, temperature=1.0):
     preds = np.asarray(preds).astype("float64")
     preds = np.log(preds + 1e-10) / temperature
@@ -127,30 +113,17 @@ def sample_temperature(preds, temperature=1.0):
     preds /= preds.sum()
     return np.argmax(np.random.multinomial(1, preds, 1))
 
-
-def prepare_input(window, char_to_idx, vocab_size, use_embedding):
-    indices = [char_to_idx.get(c, 0) for c in window]
-    if use_embedding:
-        return np.array([indices], dtype=np.int32)
-    else:
-        x = np.array(indices, dtype=np.float32) / float(vocab_size)
-        return x.reshape(1, len(window), 1)
-
-
 def generate_full_text(model, seed_text, char_to_idx, idx_to_char,
-                        seq_length, vocab_size, n_chars=200, temperature=0.8):
-    use_emb = is_embedding_model(model)
+                      seq_length, vocab_size, n_chars=200, temperature=0.8):
+
     seed_text = seed_text.lower()
-    if len(seed_text) < seq_length:
-        seed_text = seed_text.rjust(seq_length)
     seed_text = seed_text[-seq_length:]
-    seed_text = "".join(c if c in char_to_idx else " " for c in seed_text)
 
     generated = ""
     window = list(seed_text)
 
     for _ in range(n_chars):
-        x = prepare_input(window[-seq_length:], char_to_idx, vocab_size, use_emb)
+        x = np.array([char_to_idx.get(c, 0) for c in window]).reshape(1, seq_length, 1)
         preds = model.predict(x, verbose=0)[0]
         next_char = idx_to_char[sample_temperature(preds, temperature)]
         generated += next_char
@@ -159,107 +132,61 @@ def generate_full_text(model, seed_text, char_to_idx, idx_to_char,
     return generated
 
 
-# ── Sidebar ─────────────────────────────────────────────────────────────────
+# ── SIDEBAR ─────────────────────────
 
 with st.sidebar:
     st.markdown("## ⚙️ Configuración")
-    st.markdown("---")
 
-    model_file    = st.file_uploader("Modelo (.keras o .h5)", type=["keras", "h5"])
-    metadata_file = st.file_uploader("Metadatos (.json)", type=["json"])
+    model_file = st.file_uploader("Modelo", type=["keras", "h5"])
+    metadata_file = st.file_uploader("Metadatos", type=["json"])
 
-    st.markdown("---")
-
-    temperature = st.slider("🌡️ Temperatura", 0.1, 2.0, 0.8, 0.05)
-
-    if temperature < 0.5:
-        st.caption("🧊 Conservador")
-    elif temperature < 1.0:
-        st.caption("⚖️ Balanceado")
-    elif temperature < 1.4:
-        st.caption("🔥 Creativo")
-    else:
-        st.caption("🌪️ Muy loco")
-
-    n_chars = st.slider("📏 Longitud", 50, 500, 200, 50)
-
-    st.markdown("---")
-
-    seeds = [
-        "en un lugar de la mancha",
-        "el caballero miro al horizonte",
-        "sancho panza respondio",
-        "con estas razones perdia",
-        "el hidalgo tomo la espada",
-    ]
-
-    selected_seed = st.selectbox("✨ Semilla:", ["(personalizada)"] + seeds)
+    temperature = st.slider("🌡️ Temperatura", 0.1, 2.0, 0.8)
+    n_chars = st.slider("📏 Longitud", 50, 500, 200)
 
 
-# ── MAIN ────────────────────────────────────────────────────────────────────
+# ── MAIN ─────────────────────────
 
-st.markdown('<h1 class="main-title">🧠 Generador LSTM</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Texto creativo con IA 💙</p>', unsafe_allow_html=True)
-st.markdown("---")
+col1, col2 = st.columns(2)
 
-tab1, tab2, tab3 = st.tabs(["✨ Generar", "🌡️ Temperatura", "📚 Teoría"])
+with col1:
+    seed_input = st.text_area("✍️ Escribe tu texto:")
 
+    gen_btn = st.button("✨ Generar Texto", use_container_width=True)
 
-# ── TAB 1 ───────────────────────────────────────────────────────────────────
+with col2:
+    output = st.empty()
+    output.markdown('<div class="generated-text">Tu texto aparecerá aquí...</div>', unsafe_allow_html=True)
 
-with tab1:
-    col1, col2 = st.columns(2)
+if gen_btn:
+    if not seed_input.strip():
+        st.error("Escribe algo 😒")
 
-    with col1:
-        default = selected_seed if selected_seed != "(personalizada)" else ""
-        seed_input = st.text_area("✍️ Escribe tu texto:", value=default, height=100)
+    elif model_file and metadata_file:
 
-        gen_btn = st.button("✨ Generar Texto", use_container_width=True)
+        with open("/tmp/model.h5", "wb") as f:
+            f.write(model_file.read())
 
-    with col2:
-        output = st.empty()
-        output.markdown('<div class="generated-text">Tu texto aparecerá aquí...</div>', unsafe_allow_html=True)
+        with open("/tmp/meta.json", "wb") as f:
+            f.write(metadata_file.read())
 
-    if gen_btn:
-        if not seed_input.strip():
-            st.error("Escribe algo 😒")
-        elif model_file and metadata_file:
+        model, meta, err = load_model_and_metadata("/tmp/model.h5", "/tmp/meta.json")
 
-            ext = "keras" if model_file.name.endswith(".keras") else "h5"
-
-            with open(f"/tmp/model.{ext}", "wb") as f:
-                f.write(model_file.read())
-
-            with open("/tmp/metadata.json", "wb") as f:
-                f.write(metadata_file.read())
-
-            model, meta, err = load_model_and_metadata(f"/tmp/model.{ext}", "/tmp/metadata.json")
-
-            if err:
-                st.error(err)
-            else:
-                with st.spinner("Generando magia... ✨"):
-                    texto = generate_full_text(
-                        model, seed_input,
-                        meta["char_to_idx"], meta["idx_to_char"],
-                        meta["seq_length"], meta["vocab_size"],
-                        n_chars, temperature
-                    )
-
-                output.markdown(f'<div class="generated-text">{texto}</div>', unsafe_allow_html=True)
-
+        if err:
+            st.error(err)
         else:
-            st.info("Modo demo activado ✨")
-            output.markdown('<div class="generated-text">Ejemplo creativo generado...</div>', unsafe_allow_html=True)
+            with st.spinner("Generando magia... ✨"):
+                texto = generate_full_text(
+                    model, seed_input,
+                    meta["char_to_idx"], meta["idx_to_char"],
+                    meta["seq_length"], meta["vocab_size"],
+                    n_chars, temperature
+                )
 
+            output.markdown(f'<div class="generated-text">{texto}</div>', unsafe_allow_html=True)
 
-# ── TAB 2 Y 3 (sin cambios funcionales) ──────────────────────────────────────
-
-with tab2:
-    st.write("Comparación de temperatura aquí...")
-
-with tab3:
-    st.write("Teoría aquí...")
+    else:
+        st.info("Modo demo ✨")
+        output.markdown('<div class="generated-text">Había una vez un bot del océano que escribía historias mágicas...</div>', unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("<div style='text-align:center; color:#0284c7;'>Hecho con amor 💙</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;'>Hecho con amor 💙</div>", unsafe_allow_html=True)
